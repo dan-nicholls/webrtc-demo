@@ -1,0 +1,11 @@
+{
+	"scripts": {
+		"signal-server": "node ./signaling/server.js",
+		"signal-client": "node ./signaling/client.js"
+	},
+	"type": "module",
+	"dependencies": {
+		"uuid": "^13.0.0",
+		"ws": "^8.18.3"
+	}
+}
