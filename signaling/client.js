@@ -6,7 +6,7 @@ const WS_URL = "ws://localhost:5555/test"
 class SignalingClient {
 	static State = {
 		DISCONNECTED: 'disconnected',
-		CONNECTING: "connected",
+		CONNECTING: "connecting",
 		CONNECTED: 'connected',
 		WELCOMED: 'welcomed',
 		JOINED: 'joined',
@@ -26,6 +26,7 @@ class SignalingClient {
 	}
 
 	setState(state) {
+		this.onLog(`changing state ${this.state} -> ${state}`)
 		this.state = state;
 	}
 
@@ -47,21 +48,84 @@ class SignalingClient {
 
 		this.ws.addEventListener('open', () => {
 			this.onLog('ws open')
+			this.setState(SignalingClient.State.CONNECTED)
 		})
 
-		this.ws.addEventListener('close', () => {
-			this.onLog('ws close')
+		this.ws.addEventListener('close', (event) => {
+			this.onLog('ws close: ', event.code, event.reason)
+			this.disconnect()
 		})
 
 		this.ws.addEventListener('message', (event) => {
-			this.onLog('ws message: %s', event.data)
+			this.onLog('ws message: ', event.data)
 
+			let msg
 			try {
-				const msg = JSON.parse(event.data)
+				msg = JSON.parse(event.data)
 			} catch(e) {
 				this.onError(e)
+				return
 			}
+			this._onMessage(msg)
 		})
+	}
+
+	_onMessage(msg) {
+		switch (msg.type) {
+			case 'welcome':
+				if (this.state === SignalingClient.State.CONNECTED) {
+					this.clientId = msg.clientId
+					this.setState(SignalingClient.State.WELCOMED)
+					this.onLog("received welcome")
+				}
+				break;
+			case 'join':
+				if (this.state === SignalingClient.State.WELCOMED) {
+					this.roomId = msg.roomId
+					this.setState(SignalingClient.State.JOINED)
+					this.onLog("joined room")
+				}
+				break;
+			case 'leave':
+			case 'offer':
+			case 'answer':
+			case 'ice':
+			case 'ping':
+			case 'error':
+				this.onLog(`server error: `, e)
+			default:
+				this.onLog(`${msg.type} recieved`)
+				break
+		}
+	}
+
+	joinRoom(room) {
+		if (this.state === SignalingClient.State.WELCOMED) {
+			// Send Message JOIN message
+			if (room === this.roomId) {
+				this.onError('already in room: ', this.roomId)
+			}
+
+			this._sendWSMessage({
+				type: 'join',
+				roomId: room,
+			})
+		}
+	}
+
+	_sendWSMessage(obj) {
+		if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+			this.onLog('ws not open ', obj.type);
+			return
+		}
+
+		if (this.clientId) obj.from = this.clientId
+		try {
+			let data = JSON.stringify(obj)
+			this.ws.send(data)
+		} catch(e) {
+			this.onError(e)
+		}
 	}
 
 	disconnect() {
@@ -72,6 +136,7 @@ class SignalingClient {
 				this.onError(e)
 			}
 		}
+		this.ws = null
 		this.setState(SignalingClient.State.DISCONNECTED)
 	}
 }
@@ -87,4 +152,6 @@ async function waitForState(client, goalState, timeoutMs = 3000) {
 let client = new SignalingClient(WS_URL)
 client.connect()
 
-await waitForState(client, "IN_CALL")
+await waitForState(client, SignalingClient.State.WELCOMED)
+client.joinRoom('testRoom')
+await waitForState(client, SignalingClient.State.DISCONNECTED)
