@@ -20,6 +20,7 @@ class SignalingClient {
 		this.ws = null;
 		this.clientId = null;
 		this.roomId = null;
+		this.peers = new Set();
 
 		this.onError = (err) => console.error("[SignalingClient] ", err)
 		this.onLog = (...args) => console.log("[SignalingClient] ", ...args)
@@ -28,6 +29,11 @@ class SignalingClient {
 	setState(state) {
 		this.onLog(`changing state ${this.state} -> ${state}`)
 		this.state = state;
+	}
+
+	_setClientId(clientId){
+		this.clientId = clientId
+		this.onLog(`client ID assigned ${clientId}`)
 	}
 
 	connect() {
@@ -73,25 +79,68 @@ class SignalingClient {
 	_onMessage(msg) {
 		switch (msg.type) {
 			case 'welcome':
+				this.onLog(`handling ${msg.type}`)
 				if (this.state === SignalingClient.State.CONNECTED) {
-					this.clientId = msg.clientId
+					this._setClientId(msg.id)
 					this.setState(SignalingClient.State.WELCOMED)
 					this.onLog("received welcome")
 				}
 				break;
-			case 'join':
+			case 'joined':
+				this.onLog(`handling ${msg.type}`)
+				this.onLog(typeof msg.peers)
+				this.onLog(msg)
+				// Welcome to the user
 				if (this.state === SignalingClient.State.WELCOMED) {
-					this.roomId = msg.roomId
+					this.roomId = msg.room
+					for(let peer of msg.peers) {
+						console.log(peer)
+						this.peers.add(peer)
+					}
 					this.setState(SignalingClient.State.JOINED)
 					this.onLog("joined room")
 				}
 				break;
+			case 'peer-joined':
+				this.onLog(`handling ${msg.type}`)
+				if (this.state === SignalingClient.State.JOINED) {
+					if (this.roomId !== msg.room) {
+						console.log("not right room")
+						break
+					}
+					
+					if (this.peers.has(msg.id)) {
+						this.onLog(`peer already in peer list: ${msg.id}`)
+						break
+					}
+					this.peers.add(msg.id)
+				}
+				break;
 			case 'leave':
+				this.onLog(`handling ${msg.type}`)
+				break;
+			case 'peer-left':
+				this.onLog(`handling ${msg.type}`)
+				if (this.state === SignalingClient.State.JOINED) {
+					if (this.roomId !== msg.room) {
+						console.log("not right room")
+						break
+					}
+
+					if (!this.peers.has(msg.id)) {
+						this.onLog(`peer with id ${msg.id} not found in peer-list`)
+						break
+					}
+
+					this.peers.delete(msg.id)
+				}
+				break
 			case 'offer':
 			case 'answer':
 			case 'ice':
 			case 'ping':
 			case 'error':
+				this.onLog(`handling ${msg.type}`)
 				this.onLog(`server error: `, e)
 			default:
 				this.onLog(`${msg.type} recieved`)
@@ -108,7 +157,7 @@ class SignalingClient {
 
 			this._sendWSMessage({
 				type: 'join',
-				roomId: room,
+				room: room,
 			})
 		}
 	}
@@ -129,14 +178,7 @@ class SignalingClient {
 	}
 
 	disconnect() {
-		if (this.ws) {
-			try{
-				this.ws.close()
-			} catch(e) {
-				this.onError(e)
-			}
-		}
-		this.ws = null
+		if (this.ws) try { this.ws.close() } catch(e) {}
 		this.setState(SignalingClient.State.DISCONNECTED)
 	}
 }

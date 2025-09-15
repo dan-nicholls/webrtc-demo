@@ -21,15 +21,52 @@ function sendMessage(conn, obj) {
 	}
 }
 
+function createWelcome(clientId) { 
+	return { type: "welcome", id: clientId }
+}
+
+function createJoined(clientId, roomId, peers) { 
+	return {
+		type: "joined",
+		room: roomId,
+		id: clientId,
+		peers: peers,
+		iceConfig: []
+	}
+}
+
+function createPeerJoined(roomId, peerId) { 
+	return {
+		type: "peer-joined",
+		room: roomId,
+		id: peerId,
+	}
+}
+
+function createPeerLeft(peerId, reason) { 
+	return {
+		type: "peer-left",
+		id: peerId,
+		reason: reason
+	}
+}
+
+function createLeft(conn, roomId) { 
+	return { type: "left", room: roomId }
+}
+
+function sendSignal() { pass }
+
+
 // TODO - write this
 function broadcastToRoom(roomId, message, excludeId = null) {
-	console.log("Broadcasting to room %s", roomId)
+	console.log(`Broadcasting ${message.type} to room ${roomId}`)
 	let room = rooms.get(roomId)
 	if (!room) {
 		console.error("error broadcasting. unknown room: ", roomId)
 	}
 
-	for(let peerId of room.peers) {
+	for(let peerId of room) {
 		if (excludeId && peerId === excludeId) {
 			continue
 		}
@@ -50,7 +87,7 @@ ws.on('connection', function connection(conn, req) {
 	console.info("client connected: %s", req.socket.remoteAddress)
 
 	// Send welcome message
-	sendMessage(conn, {type: 'welcome', clientId })
+	sendMessage(conn, createWelcome(clientId))
 
 	// Handle signaling messages
 	// TODO - Handle join, leave, offer, answer, ice, ping
@@ -60,21 +97,28 @@ ws.on('connection', function connection(conn, req) {
 			case 'join':
 				console.log('recieved join: %s', raw)
 				// Check if client is in client list
-				if (!clients.get(clientId)) {
-					console.error("client doesnt exist: ", msg.clientId)
+				let client = clients.get(clientId)
+				if (!client) {
+					console.error("client not in client list: ${clientId}")
 				}
-				clients.get(clientId).roomId = msg.roomId
-				// check if room != null
-				// Change rooms:
-				if (!rooms.get(msg.roomId)) {
-					rooms.set(msg.roomId, {
-						peers: []
-					})
+				
+				let roomId = msg.room
+				if (!roomId || roomId.length === 0) {
+					console.error("invalid room")
 				}
-				// 	2. Update rooms list
-				rooms.get(msg.roomId).peers = [...rooms.get(msg.roomId).peers, msg.from]
+				
+				if (!rooms.get(roomId)) {
+					rooms.set(roomId, new Set())
+				}
+
+				client.roomId = roomId
+				let peers = [...rooms.get(roomId)]
+				sendMessage(conn, createJoined(clientId, roomId, peers ))
+				
 				// Return Join message.
-				broadcastToRoom(msg.roomId, {type: 'join', room: msg.roomId, from: msg.from })
+				broadcastToRoom(roomId, createPeerJoined(roomId, clientId), clientId)
+
+				rooms.get(roomId).add(clientId)
 				break;
 			case 'leave':
 				console.log('recieved leave: %s', raw)
@@ -106,10 +150,13 @@ ws.on('connection', function connection(conn, req) {
 		const client = clients.get(clientId)
 		if (!client) return
 		const roomId = client.roomId
-		if (roomId) {
-			broadcastToRoom(roomId, { type: 'leave', clientId }, clientId)
-		}
 		clients.delete(clientId)
+		
+		if (roomId) {
+			rooms.get(roomId)?.delete(clientId)
+			broadcastToRoom(roomId, createPeerLeft(clientId, "disconnected"))
+			if (rooms.get(roomId)?.size === 0) rooms.delete(roomId) 
+		}
 		console.log("client disconnected: %s", clientId)
 	})
 })
