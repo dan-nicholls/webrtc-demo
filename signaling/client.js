@@ -168,13 +168,16 @@ class SignalingClient {
 			return
 		}
 
-		if (this.clientId) obj.from = this.clientId
 		try {
 			let data = JSON.stringify(obj)
 			this.ws.send(data)
 		} catch(e) {
 			this.onError(e)
 		}
+	}
+
+	_createOffer() {
+		
 	}
 
 	disconnect() {
