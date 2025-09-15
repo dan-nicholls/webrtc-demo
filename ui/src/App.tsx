@@ -21,6 +21,8 @@ function App() {
   const [localIceText, setLocalIceText] = useState("")
   const [remoteIceText, setRemoteIceText] = useState("")
 
+  const [isGathering, setIsGathering] = useState(false)
+
   const copyToClipboard = async (text) => {
 	try {
 		await navigator.clipboard.writeText(text)
@@ -33,11 +35,7 @@ function App() {
   const ensurePeerConn = () => {
 	if (peerConn) return peerConn
 	
-	const peer = new RTCPeerConnection({
-		iceServers: [{
-			urls: ["stun:stun.l.google.com:19302"]
-		}]
-	})
+	const peer = new RTCPeerConnection()
 
 	peer.ontrack = (e) => {
 		if (remoteVideoRef.current) {
@@ -83,9 +81,14 @@ function App() {
 	const peer = ensurePeerConn()
 	const offer = await peer.createOffer()
 	await peer.setLocalDescription(offer)
-	const offerString = JSON.stringify(peer.localDescription)
-	setOfferText(offerString)
-	await copyToClipboard(offerString)
+
+	await waitForIceGatheringComplete(peer)
+
+	
+	//const offerString = JSON.stringify(peer.localDescription)
+	const completeOffer = JSON.stringify(peer.localDescription!);
+	setOfferText(completeOffer)
+	await copyToClipboard(completeOffer)
   }
 
   const handleRemoteOffer = async () => {
@@ -106,11 +109,15 @@ function App() {
 		alert("Set a valid remote description")
 		return
 	}
+
 	const answer = await peer.createAnswer()
 	await peer.setLocalDescription(answer)
-	const answerString = JSON.stringify(peer.localDescription)
-	setAnswerText(answerString)
-	await copyToClipboard(answerString)
+	await waitForIceGatheringComplete(peer)
+
+	//const answerString = JSON.stringify(peer.localDescription)
+	const completeAnswer = JSON.stringify(peer.localDescription!)
+	setAnswerText(completeAnswer)
+	await copyToClipboard(completeAnswer)
  }
 
   const handleRemoteAnswer = async () => {
@@ -138,6 +145,19 @@ function App() {
 		}
 	}
 	setRemoteIceText("")
+  }
+
+  function waitForIceGatheringComplete(peerConn) {
+	if (peerConn.iceGatheringState === "complete") return Promise.resolve()
+	return new Promise<void>((resolve) => {
+		const check = () => {
+			if (peerConn.iceGatheringState === "complete") {
+				peerConn.removeEventListener("icegatheringstatechange", check)
+				resolve()
+			}
+		}
+		peerConn.addEventListener("icegatheringstatechange", check)
+	})
   }
 
   return (
